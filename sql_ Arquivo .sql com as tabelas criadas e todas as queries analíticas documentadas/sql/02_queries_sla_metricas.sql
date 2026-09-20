@@ -6,6 +6,8 @@ AVG(memoria_pct) AS media_memoria
 FROM servidores_metrics
 GROUP BY servidor
 
+# ----------------------------------------------------------------------------
+
 #visualizar apenas os servidores que possuem uso médio de CPU superior a 50%
 SELECT 
 	servidor,
@@ -14,12 +16,14 @@ FROM servidores_metrics
 GROUP BY servidor
 HAVING AVG(cpu_pct) > 50
 
+# ----------------------------------------------------------------------------
 
--- Divide os valores por 100 para voltar às casas decimais corretas (ex: 6814 virar 68.14)
+# Divide os valores por 100 para voltar às casas decimais corretas (ex: 6814 virar 68.14)
 UPDATE servidores_metrics
 SET cpu_pct = cpu_pct / 100,
     memoria_pct = memoria_pct / 100;
 
+# ----------------------------------------------------------------------------
 
 # Quantos dias/registros cada servidor teve com pico crítico de CPU acima de 80%?
 SELECT
@@ -29,6 +33,7 @@ FROM servidores_metrics
 WHERE cpu_pct > 80
 GROUP BY servidor
 
+# ----------------------------------------------------------------------------
 
 # cada dia e servidor, o uso de CPU do dia atual lado a lado com o uso de CPU do dia anterior
 SELECT
@@ -39,6 +44,7 @@ SELECT
 
 FROM servidores_metrics
 
+# ----------------------------------------------------------------------------
 
 # picos diários e calcular a média de CPU do dia atual somada aos 2 dias anteriores (janela móvel de 3 dias)
 SELECT
@@ -50,7 +56,7 @@ SELECT
   ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)	 AS media_movel_3dias
 
 FROM servidores_metrics
-----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 Chamados_ti
 # Tempo em minutos da abertura do chamado para o fechado.
 SELECT
@@ -61,6 +67,7 @@ DATEDIFF(hour, data_abertura, data_fechamento)	AS horas_de_atendimento
 
 FROM chamados_ti
 
+# ----------------------------------------------------------------------------
 
 # Média de Tempo de Resolução por Prioridade
 SELECT
@@ -73,12 +80,13 @@ FROM chamados_ti
 GROUP BY prioridade
 ORDER BY horas_de_atendimento DESC
 
+# ----------------------------------------------------------------------------
+
 # Define que qualquer chamado resolvido em até 24 horas está dentro do prazo (No Prazo), e acima disso está Fora do Prazo.
 SELECT
 chamados_ti.id_chamado AS Chamado,
 chamados_ti.prioridade	AS Prioridade,
 DATEDIFF (hour, data_abertura, data_fechamento) AS horas_atendimento,
-
 
 CASE
 	WHEN DATEDIFF (hour, data_abertura, data_fechamento) <= 24 THEN 'No prazo'
@@ -87,3 +95,32 @@ END AS status_SLA
 
 
 FROM chamados_ti
+
+# ----------------------------------------------------------------------------
+
+# Resumo mostrando, para cada nível de prioridade:
+# O total de chamados abertos.
+# Quantos chamados foram resolvidos No Prazo.
+# Quantos foram resolvidos Fora do Prazo.
+# O tempo médio de resolução (em horas).
+
+SELECT
+chamados_ti.prioridade,
+COUNT(*) AS contagem_chamados,
+SUM (CASE WHEN DATEDIFF (HOUR ,data_abertura, data_fechamento) <= 24 THEN 1	ELSE 0 END) AS no_prazo,
+SUM (CASE WHEN DATEDIFF (HOUR, data_abertura, data_fechamento) > 24 THEN 1 	ELSE 0 END) AS fora_prazo,
+SUM (CASE WHEN  data_fechamento IS NULL THEN 1 	ELSE 0 END) AS em_aberto,
+AVG (DATEDIFF (HOUR, data_abertura, data_fechamento)) AS media_horas
+
+FROM chamados_ti
+
+GROUP BY prioridade
+ORDER BY
+	CASE 
+		WHEN prioridade = 'Alta' THEN 1
+		WHEN prioridade = 'Média' THEN 2
+		WHEN prioridade = 'Baixa' THEN 3
+	END;
+
+
+
