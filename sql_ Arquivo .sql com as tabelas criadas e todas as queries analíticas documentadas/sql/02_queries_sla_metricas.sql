@@ -73,3 +73,17 @@ FROM chamados_ti
 GROUP BY prioridade
 ORDER BY horas_de_atendimento DESC
 
+# Define que qualquer chamado resolvido em até 24 horas está dentro do prazo (No Prazo), e acima disso está Fora do Prazo.
+SELECT
+chamados_ti.id_chamado AS Chamado,
+chamados_ti.prioridade	AS Prioridade,
+DATEDIFF (hour, data_abertura, data_fechamento) AS horas_atendimento,
+
+
+CASE
+	WHEN DATEDIFF (hour, data_abertura, data_fechamento) <= 24 THEN 'No prazo'
+	ELSE 'Fora do prazo'
+END AS status_SLA
+
+
+FROM chamados_ti
