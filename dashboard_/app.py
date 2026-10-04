@@ -81,7 +81,7 @@ st.markdown("---")
 # É utilizado psycopg2 para garantir compatibilidade nos servidores do Render
 DATABASE_URL = os.getenv(
     "DATABASE_URL", 
-    "postgresql+psycopg2://postgres:rnd_DT50wwl2wegT1CbaD5XNNXWwE5uX@db.dhneetsmgvzyfsvewfbi.supabase.co:5432/postgres"
+    "postgresql+psycopg2://postgres.dhneetsmgvzyfsvewfbi:rnd_DT50wwl2wegT1CbaD5XNNXWwE5uX@aws-0-sa-east-1.pooler.supabase.com:6543/postgres"
 )
 
 # Converte automaticamente a URL caso a variável de ambiente do Render venha sem o driver explícito
