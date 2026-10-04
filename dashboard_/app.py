@@ -77,11 +77,16 @@ st.markdown("""
 st.title("🖥️ Dashboard de Telemetria & SLA de TI")
 st.markdown("---")
 
-# 3. Conexão com o Banco PostgreSQL (Neon Cloud)
+# 3. Conexão com o Banco PostgreSQL (Supabase)
+# É utilizado psycopg2 para garantir compatibilidade nos servidores do Render
 DATABASE_URL = os.getenv(
     "DATABASE_URL", 
-    "postgresql://neondb_owner:npg_2naPSbrUe1Vi@ep-aged-sound-b48bmgk1-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require"
+    "postgresql+psycopg2://postgres:rnd_DT50wwl2wegT1CbaD5XNNXWwE5uX@db.dhneetsmgvzyfsvewfbi.supabase.co:5432/postgres"
 )
+
+# Converte automaticamente a URL caso a variável de ambiente do Render venha sem o driver explícito
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
 
 @st.cache_data(ttl=600)
 def carregar_dados_sql(query):
@@ -224,7 +229,7 @@ with aba2:
         st.plotly_chart(fig_cpu, use_container_width=True)
         
         # Alerta Diagnóstico
-        st.markdown("##### ⚠️ Diagnóstico de Capacidade: Servidores com Carga Média de CPU > 50%")
+        st.markdown("##### ⚠️️ Diagnóstico de Capacidade: Servidores com Carga Média de CPU > 50%")
         query_alerta = """
         SELECT 
             servidor,
