@@ -78,19 +78,22 @@ st.title("🖥️ Dashboard de Telemetria & SLA de TI")
 st.markdown("---")
 
 # 3. Conexão com o Banco PostgreSQL (Supabase)
-# É utilizado psycopg2 para garantir compatibilidade nos servidores do Render
 DATABASE_URL = os.getenv(
     "DATABASE_URL", 
-    "postgresql+psycopg2://postgres.dhneetsmgvzyfsvewfbi:rnd_DT50wwl2wegT1CbaD5XNNXWwE5uX@aws-0-sa-east-1.pooler.supabase.com:6543/postgres"
+    "postgresql://postgres.dhneetsmgvzyfsvewfbi:rnd_DT50wwl2wegT1CbaD5XNNXWwE5uX@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require"
 )
 
-# Converte automaticamente a URL caso a variável de ambiente do Render venha sem o driver explícito
+# Converte o prefixo para usar o driver psycopg2
 if DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
 
 @st.cache_data(ttl=600)
 def carregar_dados_sql(query):
-    engine = create_engine(DATABASE_URL)
+    # connect_args evita que o Streamlit fique travado infinitamente se a rede oscilar
+    engine = create_engine(
+        DATABASE_URL, 
+        connect_args={"connect_timeout": 10}
+    )
     with engine.connect() as conn:
         df = pd.read_sql(query, conn)
     return df
