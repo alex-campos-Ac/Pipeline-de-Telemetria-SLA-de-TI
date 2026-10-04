@@ -1,8 +1,16 @@
+import os
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from sqlalchemy import create_engine
+from dotenv import load_dotenv
+
+# Evita falha do Cython no Windows AppLocker
+os.environ["DISABLE_SQLALCHEMY_CEXT"] = "1"
+
+# Carrega variáveis de ambiente
+load_dotenv()
 
 # 1. Configuração Inicial da Página
 st.set_page_config(
@@ -28,12 +36,12 @@ st.markdown("""
         box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.3);
     }
     div[data-testid="stMetricLabel"] > label {
-        color: #8B949E !important; /* Cinza Suave */
+        color: #8B949E !important;
         font-size: 14px !important;
         font-weight: 600 !important;
     }
     div[data-testid="stMetricValue"] > div {
-        color: #58A6FF !important; /* Azul Ciano */
+        color: #58A6FF !important;
         font-size: 26px !important;
         font-weight: bold !important;
     }
@@ -69,14 +77,15 @@ st.markdown("""
 st.title("🖥️ Dashboard de Telemetria & SLA de TI")
 st.markdown("---")
 
-# 3. Conexão com o SQL Server Local
-SERVER = r'localhost' 
-DATABASE = 'DB_MONITORAMENTO'
+# 3. Conexão com o Banco PostgreSQL (Neon Cloud)
+DATABASE_URL = os.getenv(
+    "DATABASE_URL", 
+    "postgresql://neondb_owner:npg_2naPSbrUe1Vi@ep-aged-sound-b48bmgk1-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require"
+)
 
-@st.cache_data
+@st.cache_data(ttl=600)
 def carregar_dados_sql(query):
-    connection_string = f"mssql+pyodbc://@{SERVER}/{DATABASE}?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes"
-    engine = create_engine(connection_string)
+    engine = create_engine(DATABASE_URL)
     with engine.connect() as conn:
         df = pd.read_sql(query, conn)
     return df
@@ -90,15 +99,15 @@ aba1, aba2 = st.tabs(["📊 Gestão de Incidentes (SLAs)", "⚡ Telemetria de Se
 with aba1:
     st.subheader("📌 Performance de Atendimento e Cumprimento de SLA")
     try:
-        # Query Consolidada de Chamados em T-SQL
+        # Query Consolidada de Chamados adaptada para PostgreSQL
         query_chamados = """
         SELECT 
             prioridade,
             COUNT(*) AS total_chamados,
-            SUM(CASE WHEN DATEDIFF(HOUR, data_abertura, data_fechamento) <= 24 THEN 1 ELSE 0 END) AS no_prazo,
-            SUM(CASE WHEN DATEDIFF(HOUR, data_abertura, data_fechamento) > 24 THEN 1 ELSE 0 END) AS fora_prazo,
+            SUM(CASE WHEN EXTRACT(EPOCH FROM (data_fechamento - data_abertura))/3600 <= 24 THEN 1 ELSE 0 END) AS no_prazo,
+            SUM(CASE WHEN EXTRACT(EPOCH FROM (data_fechamento - data_abertura))/3600 > 24 THEN 1 ELSE 0 END) AS fora_prazo,
             SUM(CASE WHEN data_fechamento IS NULL THEN 1 ELSE 0 END) AS em_aberto,
-            AVG(DATEDIFF(HOUR, data_abertura, data_fechamento)) AS media_horas
+            ROUND(AVG(EXTRACT(EPOCH FROM (data_fechamento - data_abertura))/3600)::numeric, 1) AS media_horas
         FROM chamados_ti
         GROUP BY prioridade
         ORDER BY 
@@ -106,6 +115,7 @@ with aba1:
                 WHEN prioridade = 'Alta' THEN 1
                 WHEN prioridade = 'Média' THEN 2
                 WHEN prioridade = 'Baixa' THEN 3
+                ELSE 4
             END;
         """
         df_chamados = carregar_dados_sql(query_chamados)
@@ -115,15 +125,16 @@ with aba1:
         kpi1.metric("Total de Chamados", int(df_chamados["total_chamados"].sum()))
         kpi2.metric("Chamados em Aberto", int(df_chamados["em_aberto"].sum()))
         kpi3.metric("Fora do Prazo (SLA)", int(df_chamados["fora_prazo"].sum()))
-        kpi4.metric("Tempo Médio de Resolução", f"{df_chamados['media_horas'].mean():.1f}h")
+        
+        media_atendimento = df_chamados['media_horas'].dropna().mean()
+        kpi4.metric("Tempo Médio de Resolução", f"{media_atendimento:.1f}h" if pd.notnull(media_atendimento) else "N/A")
         
         st.markdown("<br>", unsafe_allow_html=True)
         
         col_graf, col_tb = st.columns([1.2, 1])
         
         with col_graf:
-            st.markdown("##### Cumulative SLA Status por Prioridade")
-            # Gráfico de Barras Empilhadas via Plotly
+            st.markdown("##### Status de SLA por Prioridade")
             fig_sla = px.bar(
                 df_chamados, 
                 x="prioridade", 
@@ -149,7 +160,7 @@ with aba1:
 with aba2:
     st.subheader("⚡ Monitoramento de Infraestrutura e Capacidade")
     try:
-        # Query de Telemetria com Window Functions (LAG e Média Móvel)
+        # Query de Telemetria com Window Functions em PostgreSQL
         query_servidores = """
         SELECT 
             data_registro,
@@ -173,34 +184,52 @@ with aba2:
         # Dataset Filtrado
         df_filtrado = df_servidores[df_servidores["servidor"] == servidor_selecionado]
         
-        # Cálculo de Métricas do Servidor Selecionado
+        # Cálculo de Métricas
         media_cpu = df_filtrado["cpu_pct"].mean()
         media_mem = df_filtrado["memoria_pct"].mean()
         picos_criticos = (df_filtrado["cpu_pct"] > 80).sum()
         
-        # Cartões de KPI do Servidor
+        # Cartões de KPI
         c1, c2, c3 = st.columns(3)
         c1.metric("Uso Médio de CPU", f"{media_cpu:.1f}%")
         c2.metric("Uso Médio de Memória", f"{media_mem:.1f}%")
-        c3.metric("Picos Críticos de CPU (>80%)", f"{picos_criticos} dias")
+        c3.metric("Picos Críticos de CPU (>80%)", f"{picos_criticos} registros")
         
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # Gráfico Temporal de CPU x Média Móvel (Plotly)
+        # Gráfico Temporal de CPU x Média Móvel
         st.markdown(f"##### Tendência do Processador - {servidor_selecionado}")
         fig_cpu = go.Figure()
-        fig_cpu.add_trace(go.Scatter(x=df_filtrado["data_registro"], y=df_filtrado["cpu_pct"], mode='lines+markers', name='CPU Diária (%)', line=dict(color='#58A6FF', width=1.5)))
-        fig_cpu.add_trace(go.Scatter(x=df_filtrado["data_registro"], y=df_filtrado["media_movel_3dias"], mode='lines', name='Média Móvel (3 Dias)', line=dict(color='#F0883E', width=2.5, dash='dash')))
-        fig_cpu.update_layout(template="plotly_dark", paper_bgcolor="#0E1117", plot_bgcolor="#0E1117", xaxis_title="Data", yaxis_title="Carga da CPU (%)")
+        fig_cpu.add_trace(go.Scatter(
+            x=df_filtrado["data_registro"], 
+            y=df_filtrado["cpu_pct"], 
+            mode='lines+markers', 
+            name='CPU Diária (%)', 
+            line=dict(color='#58A6FF', width=1.5)
+        ))
+        fig_cpu.add_trace(go.Scatter(
+            x=df_filtrado["data_registro"], 
+            y=df_filtrado["media_movel_3dias"], 
+            mode='lines', 
+            name='Média Móvel (3 Dias)', 
+            line=dict(color='#F0883E', width=2.5, dash='dash')
+        ))
+        fig_cpu.update_layout(
+            template="plotly_dark", 
+            paper_bgcolor="#0E1117", 
+            plot_bgcolor="#0E1117", 
+            xaxis_title="Data", 
+            yaxis_title="Carga da CPU (%)"
+        )
         st.plotly_chart(fig_cpu, use_container_width=True)
         
-        # Alerta Diagnóstico: Servidores com Carga Média > 50%
-        st.markdown("##### ⚠️ Diagnóstico de Capacidade: Servidores com Carga Médio de CPU > 50%")
+        # Alerta Diagnóstico
+        st.markdown("##### ⚠️ Diagnóstico de Capacidade: Servidores com Carga Média de CPU > 50%")
         query_alerta = """
         SELECT 
             servidor,
-            ROUND(AVG(cpu_pct), 2) AS media_cpu_pct,
-            ROUND(AVG(memoria_pct), 2) AS media_memoria_pct
+            ROUND(AVG(cpu_pct)::numeric, 2) AS media_cpu_pct,
+            ROUND(AVG(memoria_pct)::numeric, 2) AS media_memoria_pct
         FROM servidores_metrics
         GROUP BY servidor
         HAVING AVG(cpu_pct) > 50;
